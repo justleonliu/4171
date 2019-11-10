@@ -1,0 +1,175 @@
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.ArrayList;
+import java.util.Scanner;
+
+
+class Route {
+    private int address; 
+    private int mask = 0; 
+    private int maskLen; 
+
+    private String gateway; 
+    private String outInterface; 
+
+    public Route(String addressString, String gateway, String outInterface) {
+        this.gateway = gateway;
+        this.outInterface = outInterface;
+
+        String[] s = addressString.split("/");
+
+        this.address = ipToInt(s[0]);
+        this.maskLen = Integer.parseInt(s[1]);
+
+        for (int i = 0; i < maskLen; ++i) {
+            mask |= 1 << 32 - i - 1;
+        }
+    }
+
+    public String getGateway() {
+        return gateway;
+    }
+
+    public String getInterface() {
+        return outInterface;
+    }
+
+    public boolean match(String ip) {
+        int addr = ipToInt((ip));
+        return (addr & mask) == (this.address & mask);
+    }
+
+    public boolean isDirect() {
+        return getGateway().equals("-");
+    }
+
+    public static boolean check(String ip) {
+        if (ip.startsWith("127")) {
+            System.out.println("is loopback; discarded");
+            return false;
+        } else {
+            int b = Integer.parseInt(ip.split("\\.")[3]);
+            if (b == 0) {
+                System.out.println("is malformed; discarded");
+                return false;
+            }
+        }
+        return true;
+    }
+
+
+    public String toString() {
+        String addressString = String.format("%s/%d", intToIp(address), maskLen);
+        return addressString + "\n" + gateway + "\n" + outInterface;
+    }
+
+    private static int ipToInt(String ip) {
+        int address = 0;
+        String[] s = ip.split("\\.");
+        if (s.length == 4) {
+            address |= Integer.parseInt((s[0])) << (24);
+            address |= Integer.parseInt((s[1])) << (16);
+            address |= Integer.parseInt((s[2])) << (8);
+            address |= Integer.parseInt((s[3])) << (0);
+        }
+        return address;
+    }
+
+    private static String intToIp(int ip) {
+        return ((ip >> 24) & 0xFF) + "."
+                + ((ip >> 16) & 0xFF) + "."
+                + ((ip >> 8) & 0xFF) + "."
+                + (ip & 0xFF);
+    }
+}
+
+
+public class Router {
+
+    private final ArrayList<Route> routes = new ArrayList<>();
+
+    public void addRoute(Route route) {
+        routes.add(route);
+    }
+
+
+    Route findRoute(String ip) {
+        for (Route route : routes) {
+            if (route.match(ip)) {
+                return route;
+            }
+        }
+        return null;
+    }
+
+
+    public void operate(String packetsFile) throws FileNotFoundException {
+        Scanner scanner = new Scanner(new File(packetsFile));
+
+        while (scanner.hasNextLine()) { 
+            String ip = scanner.nextLine(); 
+
+
+            Route route = findRoute(ip);
+
+
+
+            System.out.printf("%s ", ip); 
+
+            if (Route.check(ip)) {
+                System.out.print("will be forwarded ");
+                if (route.isDirect()) {
+                    System.out.print("on the directly connected network ");
+                } else {
+                    System.out.printf("to %s out ", route.getGateway());
+                }
+
+                System.out.printf("on interface %s\n", route.getInterface());
+            }
+        }
+        scanner.close();
+    }
+
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        for (Route route : routes) {
+            sb.append(route.toString()).append("\n");
+        }
+        return sb.toString();
+    }
+
+    public static Router loadFromFile(String filename) throws FileNotFoundException {
+        Scanner scanner = new Scanner(new File(filename));
+        Router router = new Router();
+
+        while (scanner.hasNextLine()) {
+            String address = scanner.nextLine();
+            String gateway = scanner.nextLine();
+            String outInterface = scanner.nextLine();
+
+            Route route = new Route(address, gateway, outInterface);
+            router.addRoute(route);
+        }
+        scanner.close();
+
+        return router;
+    }
+
+    public static void main(String[] args) {
+        if (args.length < 2) {
+            System.out.println("Usage: java Router RoutingTable.txt RandomPackets.txt");
+            return;
+        }
+
+        try {
+            Router router = loadFromFile(args[0]);
+
+            router.operate(args[1]);
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
